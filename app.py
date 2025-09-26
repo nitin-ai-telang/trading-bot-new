@@ -188,9 +188,9 @@ for symbol in symbols:
     # Historical data
 df = get_data(symbol, period, interval)
 
-if df.empty or len(df) < 50:  # not enough candles for strategies
-    st.warning(f"⚠️ No data available for {symbol} with {period}/{interval}. Skipping...")
-    continue
+for symbol in symbols:
+    if not symbol:
+        continue
 
     # Fetch data
     df = get_data(symbol, period, interval)
