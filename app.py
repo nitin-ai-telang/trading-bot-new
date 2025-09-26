@@ -82,11 +82,15 @@ def bollinger_strategy(df, window=20, num_std=2):
 
 # --- BACKTEST ENGINE ---
 def backtest(df, strategy_func, initial_balance=10000, trade_size=1):
-    balance = initial_balance
-    position = 0
-    equity_curve = []
-    trades = 0
-    wins = 0
+    if df.empty or len(df) < 50:
+        return {
+            "final_balance": initial_balance,
+            "profit": 0,
+            "trades": 0,
+            "win_rate": 0,
+            "equity_curve": [initial_balance]
+        }
+
 
     for i in range(len(df)):
         sub_df = df.iloc[: i + 1]
