@@ -1,0 +1,6 @@
+streamlit
+yfinance
+alpaca-trade-api
+plotly
+pandas
+numpy
