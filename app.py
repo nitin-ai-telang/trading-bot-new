@@ -181,7 +181,13 @@ for symbol in symbols:
     st.session_state.last_prices[symbol] = price
 
     # Historical data
-    df = get_data(symbol, period, interval)
+    # Historical data
+df = get_data(symbol, period, interval)
+
+if df.empty or len(df) < 50:  # not enough candles for strategies
+    st.warning(f"⚠️ No data available for {symbol} with {period}/{interval}. Skipping...")
+    continue
+
 
     # Signal
     signal = strategy_func(df)
