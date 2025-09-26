@@ -1,3 +1,4 @@
+
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -5,6 +6,7 @@ import numpy as np
 from alpaca_trade_api import REST
 import plotly.graph_objects as go
 from datetime import datetime
+from streamlit_autorefresh import st_autorefresh
 
 # ========== CONFIG ==========
 import streamlit as st
