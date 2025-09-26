@@ -82,7 +82,6 @@ def bollinger_strategy(df, window=20, num_std=2):
 
 # --- BACKTEST ENGINE ---
 def backtest(df, strategy_func, initial_balance=10000, trade_size=1):
-    # Guard: skip if no data
     if df.empty or "Close" not in df.columns or len(df) < 50:
         return {
             "final_balance": initial_balance,
@@ -99,14 +98,10 @@ def backtest(df, strategy_func, initial_balance=10000, trade_size=1):
     wins = 0
 
     for i in range(len(df)):
-        price = float(df["Close"].iloc[i])  # force scalar
-if np.isnan(price):  # use numpy for scalars
-    continue
-
-
-        # Skip bad rows
-        if pd.isna(price):
-            equity_curve.append(balance + position * 0)  # flat
+        # ✅ ensure scalar
+        price = float(df["Close"].iloc[i])
+        if np.isnan(price):
+            equity_curve.append(balance + position * 0)
             continue
 
         signal = strategy_func(df, i)
@@ -119,12 +114,12 @@ if np.isnan(price):  # use numpy for scalars
             position -= trade_size
             balance += trade_size * price
             trades += 1
-            if balance > initial_balance:  # very naive win check
+            if balance > initial_balance:  # naive win check
                 wins += 1
 
         equity_curve.append(balance + position * price)
 
-    final_balance = balance + position * df["Close"].iloc[-1]
+    final_balance = balance + position * float(df["Close"].iloc[-1])
     profit = final_balance - initial_balance
     win_rate = (wins / trades * 100) if trades > 0 else 0
 
@@ -136,24 +131,6 @@ if np.isnan(price):  # use numpy for scalars
         "equity_curve": equity_curve,
     }
 
-# --- Trading ---
-def execute_trade(signal, symbol, qty, stop_loss_pct, take_profit_pct):
-    if signal in ["BUY", "SELL"]:
-        price = get_live_price(symbol)
-        api.submit_order(symbol=symbol, qty=qty, side=signal.lower(), type="market", time_in_force="gtc")
-        
-        # Log trade
-        st.session_state.trade_log.append({
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "symbol": symbol,
-            "action": signal,
-            "qty": qty,
-            "price": price,
-            "stop_loss": price * (1 - stop_loss_pct/100) if signal == "BUY" else None,
-            "take_profit": price * (1 + take_profit_pct/100) if signal == "BUY" else None,
-        })
-        return f"✅ Executed {signal} order for {symbol} at ${price:.2f}"
-    return "No trade executed"
 
 # ========== STREAMLIT DASHBOARD ==========
 st.set_page_config(page_title="Trading Bot Dashboard", layout="wide")
