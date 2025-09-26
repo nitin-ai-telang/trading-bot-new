@@ -192,7 +192,14 @@ if df.empty or len(df) < 50:  # not enough candles for strategies
     st.warning(f"⚠️ No data available for {symbol} with {period}/{interval}. Skipping...")
     continue
 
+    # Fetch data
+    df = get_data(symbol, period, interval)
 
+# Guard: skip if no data
+    if df.empty or len(df) < 50:
+        st.warning(f"⚠️ No data available for {symbol} with {period}/{interval}. Skipping...")
+        continue   # ✅ this is valid here, inside the for loop
+        
     # Signal
     signal = strategy_func(df)
     st.write(f"📌 Strategy Signal: **{signal}**")
