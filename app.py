@@ -57,7 +57,7 @@ def rsi_strategy(df, i, period=14, overbought=70, oversold=30):
 
 # Backtest engine
 def backtest(df, strategy_func, initial_balance=10000, trade_size=1):
-    if df.empty or "Close" not in df.columns or len(df) < 50:
+    if df.empty or "Close" not in df.columns or strategy_func is None:
         return {
             "final_balance": initial_balance,
             "profit": 0,
@@ -170,3 +170,9 @@ if ticker:
         )
 
         st.plotly_chart(fig, use_container_width=True)
+
+
+if df.empty or "Close" not in df.columns:
+    st.warning(f"⚠️ No usable data for {ticker}. Please try another symbol/interval.")
+else:
+    results = backtest(df, strategy_func)
