@@ -4,3 +4,4 @@ alpaca-trade-api
 plotly
 pandas
 numpy
+alpha_vantage==2.3.1
