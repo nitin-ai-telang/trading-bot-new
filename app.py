@@ -135,7 +135,8 @@ def execute_trade(signal, symbol, qty, stop_loss_pct, take_profit_pct):
 st.set_page_config(page_title="Trading Bot Dashboard", layout="wide")
 
 # Auto-refresh every 5 seconds
-st_autorefresh = st.experimental_autorefresh(interval=5000, limit=None, key="refresh")
+#st_autorefresh = st.experimental_autorefresh(interval=5000, limit=None, key="refresh")
+st_autorefresh(interval=5000, limit=None, key="refresh")
 
 st.title("🤖 Multi-Symbol Automated Trading Bot")
 
