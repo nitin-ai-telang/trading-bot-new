@@ -99,7 +99,10 @@ def backtest(df, strategy_func, initial_balance=10000, trade_size=1):
     wins = 0
 
     for i in range(len(df)):
-        price = df["Close"].iloc[i]
+        price = float(df["Close"].iloc[i])  # force scalar
+if np.isnan(price):  # use numpy for scalars
+    continue
+
 
         # Skip bad rows
         if pd.isna(price):
