@@ -1,86 +1,61 @@
-
 import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from alpaca_trade_api import REST
 import plotly.graph_objects as go
-from datetime import datetime
+from alpaca_trade_api.rest import REST
 from streamlit_autorefresh import st_autorefresh
 
-# ========== CONFIG ==========
-import streamlit as st
-
+# ======================================================
+# CONFIG: Alpaca credentials (loaded from Streamlit secrets)
+# ======================================================
 API_KEY = st.secrets["API_KEY"]
 API_SECRET = st.secrets["API_SECRET"]
 BASE_URL = st.secrets["BASE_URL"]
 
+alpaca = REST(API_KEY, API_SECRET, base_url=BASE_URL)
 
-api = REST(API_KEY, API_SECRET, BASE_URL, api_version="v2")
+# ======================================================
+# HELPER FUNCTIONS
+# ======================================================
+def get_data(ticker, period="1mo", interval="1d"):
+    """Fetch price data from Yahoo Finance"""
+    try:
+        df = yf.download(ticker, period=period, interval=interval)
+        df.dropna(inplace=True)
+        return df
+    except Exception as e:
+        st.error(f"Error fetching data for {ticker}: {e}")
+        return pd.DataFrame()
 
-# --- SESSION STATE ---
-if "trade_log" not in st.session_state:
-    st.session_state.trade_log = []
-if "last_prices" not in st.session_state:
-    st.session_state.last_prices = {}
+# Example simple strategies
+def sma_strategy(df, i, short=10, long=30):
+    if i < long:
+        return None
+    short_ma = df["Close"].iloc[i - short : i].mean()
+    long_ma = df["Close"].iloc[i - long : i].mean()
+    if short_ma > long_ma:
+        return "buy"
+    elif short_ma < long_ma:
+        return "sell"
+    return None
 
-# ========== DATA LOADING ==========
-def get_data(symbol, period="1y", interval="1d"):
-    df = yf.download(symbol, period=period, interval=interval)
-    return df
-
-def get_live_price(symbol):
-    ticker = yf.Ticker(symbol)
-    todays_data = ticker.history(period="1d", interval="1m")
-    return todays_data["Close"].iloc[-1] if not todays_data.empty else None
-
-# --- STRATEGIES ---
-def sma_strategy(df):
-    df["SMA20"] = df["Close"].rolling(20).mean()
-    df["SMA50"] = df["Close"].rolling(50).mean()
-    if df["SMA20"].iloc[-1] > df["SMA50"].iloc[-1]:
-        return "BUY"
-    elif df["SMA20"].iloc[-1] < df["SMA50"].iloc[-1]:
-        return "SELL"
-    return "HOLD"
-
-def rsi_strategy(df, period=14, overbought=70, oversold=30):
+def rsi_strategy(df, i, period=14, overbought=70, oversold=30):
+    if i < period:
+        return None
     delta = df["Close"].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
+    gain = delta.clip(lower=0).rolling(period).mean()
+    loss = -delta.clip(upper=0).rolling(period).mean()
     rs = gain / loss
-    df["RSI"] = 100 - (100 / (1 + rs))
-    rsi = df["RSI"].iloc[-1]
-    if rsi < oversold:
-        return "BUY"
-    elif rsi > overbought:
-        return "SELL"
-    return "HOLD"
+    rsi = 100 - (100 / (1 + rs))
+    value = rsi.iloc[i]
+    if value < oversold:
+        return "buy"
+    elif value > overbought:
+        return "sell"
+    return None
 
-def macd_strategy(df, fast=12, slow=26, signal=9):
-    df["EMA12"] = df["Close"].ewm(span=fast).mean()
-    df["EMA26"] = df["Close"].ewm(span=slow).mean()
-    df["MACD"] = df["EMA12"] - df["EMA26"]
-    df["Signal"] = df["MACD"].ewm(span=signal).mean()
-    if df["MACD"].iloc[-1] > df["Signal"].iloc[-1]:
-        return "BUY"
-    elif df["MACD"].iloc[-1] < df["Signal"].iloc[-1]:
-        return "SELL"
-    return "HOLD"
-
-def bollinger_strategy(df, window=20, num_std=2):
-    df["SMA"] = df["Close"].rolling(window).mean()
-    df["STD"] = df["Close"].rolling(window).std()
-    df["Upper"] = df["SMA"] + num_std * df["STD"]
-    df["Lower"] = df["SMA"] - num_std * df["STD"]
-    last_price = df["Close"].iloc[-1]
-    if last_price < df["Lower"].iloc[-1]:
-        return "BUY"
-    elif last_price > df["Upper"].iloc[-1]:
-        return "SELL"
-    return "HOLD"
-
-# --- BACKTEST ENGINE ---
+# Backtest engine
 def backtest(df, strategy_func, initial_balance=10000, trade_size=1):
     if df.empty or "Close" not in df.columns or len(df) < 50:
         return {
@@ -98,8 +73,11 @@ def backtest(df, strategy_func, initial_balance=10000, trade_size=1):
     wins = 0
 
     for i in range(len(df)):
-        # ✅ ensure scalar
-        price = float(df["Close"].iloc[i])
+        try:
+            price = float(df["Close"].iloc[i])
+        except Exception:
+            continue
+
         if np.isnan(price):
             equity_curve.append(balance + position * 0)
             continue
@@ -114,7 +92,7 @@ def backtest(df, strategy_func, initial_balance=10000, trade_size=1):
             position -= trade_size
             balance += trade_size * price
             trades += 1
-            if balance > initial_balance:  # naive win check
+            if balance > initial_balance:
                 wins += 1
 
         equity_curve.append(balance + position * price)
@@ -131,156 +109,64 @@ def backtest(df, strategy_func, initial_balance=10000, trade_size=1):
         "equity_curve": equity_curve,
     }
 
+# ======================================================
+# STREAMLIT DASHBOARD
+# ======================================================
+st.set_page_config(page_title="Trading Bot", layout="wide")
 
-# ========== STREAMLIT DASHBOARD ==========
-st.set_page_config(page_title="Trading Bot Dashboard", layout="wide")
+st.title("📈 Automated Trading Bot with Backtesting")
 
-# Auto-refresh every 5 seconds
-#st_autorefresh = st.experimental_autorefresh(interval=5000, limit=None, key="refresh")
+# Auto-refresh every 5s
 st_autorefresh(interval=5000, limit=None, key="refresh")
 
-st.title("🤖 Multi-Symbol Automated Trading Bot")
+# User Inputs
+col1, col2, col3 = st.columns(3)
+with col1:
+    ticker = st.text_input("Enter ticker symbol", "AAPL").upper()
+with col2:
+    period = st.selectbox("Period", ["1mo", "3mo", "6mo", "1y", "2y", "5y"], index=0)
+with col3:
+    interval = st.selectbox("Interval", ["1d", "1h", "30m", "15m", "5m"], index=0)
 
-# MAIN INPUT: Watchlist
-st.subheader("🔎 Enter Tickers (comma separated)")
-symbols = st.text_input("Example: AAPL, TSLA, MSFT", value="AAPL, TSLA").upper().replace(" ", "").split(",")
+strategy_choice = st.selectbox("Strategy", ["SMA Crossover", "RSI"])
 
-# Sidebar Settings
-st.sidebar.header("⚙️ Settings")
-period = st.sidebar.selectbox("Period", ["5d", "30d", "90d", "1y"], index=3)
-interval = st.sidebar.selectbox("Interval", ["5m", "30m", "1d"], index=2)
-qty = st.sidebar.number_input("Trade Quantity per Symbol", min_value=1, value=1)
-strategy_choice = st.sidebar.selectbox("Strategy", ["SMA", "RSI", "MACD", "Bollinger Bands"])
-stop_loss_pct = st.sidebar.slider("Stop Loss %", 1, 20, 5)
-take_profit_pct = st.sidebar.slider("Take Profit %", 1, 50, 10)
-auto_trade = st.sidebar.checkbox("Enable Auto-Trade", value=False)
+if ticker:
+    df = get_data(ticker, period, interval)
 
-# Choose Strategy
-strategy_map = {
-    "SMA": sma_strategy,
-    "RSI": rsi_strategy,
-    "MACD": macd_strategy,
-    "Bollinger Bands": bollinger_strategy
-}
-strategy_func = strategy_map[strategy_choice]
+    if df.empty:
+        st.warning(f"No data found for {ticker}")
+    else:
+        # Select strategy
+        if strategy_choice == "SMA Crossover":
+            strategy_func = sma_strategy
+        else:
+            strategy_func = rsi_strategy
 
-# ========== SYMBOL LOOP ==========
-for symbol in symbols:
-    if not symbol:
-        continue
-    
-    st.markdown(f"### 📊 {symbol}")
+        # Backtest
+        results = backtest(df, strategy_func)
 
-    # Live price
-    price = get_live_price(symbol)
-    delta = None
-    if symbol in st.session_state.last_prices:
-        delta = round(price - st.session_state.last_prices[symbol], 2)
-    st.metric(label=f"Live Price for {symbol}", value=f"${price:.2f}", delta=delta)
-    st.session_state.last_prices[symbol] = price
+        st.subheader("Backtest Results")
+        st.write(f"💰 Final Balance: ${results['final_balance']:.2f}")
+        st.write(f"📊 Profit: ${results['profit']:.2f}")
+        st.write(f"📝 Trades: {results['trades']}")
+        st.write(f"✅ Win Rate: {results['win_rate']:.2f}%")
 
-    # Historical data
-    # Historical data
-df = get_data(symbol, period, interval)
+        # Chart
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df.index, y=df["Close"], mode="lines", name="Price"))
+        fig.add_trace(go.Scatter(
+            y=results["equity_curve"],
+            x=df.index[: len(results["equity_curve"])],
+            mode="lines",
+            name="Equity Curve",
+            yaxis="y2",
+        ))
 
-for symbol in symbols:
-    if not symbol:
-        continue
+        fig.update_layout(
+            title=f"{ticker} Price & Backtest Equity Curve",
+            yaxis=dict(title="Price"),
+            yaxis2=dict(title="Equity", overlaying="y", side="right"),
+            legend=dict(x=0, y=1, traceorder="normal"),
+        )
 
-    # Fetch data
-    df = get_data(symbol, period, interval)
-
-# Guard: skip if no data
-    if df.empty or len(df) < 50:
-        st.warning(f"⚠️ No data available for {symbol} with {period}/{interval}. Skipping...")
-        continue   # ✅ this is valid here, inside the for loop
-        
-    # Signal
-    signal = strategy_func(df)
-    st.write(f"📌 Strategy Signal: **{signal}**")
-
-    # Auto-trade logic
-    if auto_trade and signal in ["BUY", "SELL"]:
-        result = execute_trade(signal, symbol, qty, stop_loss_pct, take_profit_pct)
-        st.success(result)
-
-    # Chart
-    fig = go.Figure()
-    fig.add_trace(go.Candlestick(
-        x=df.index,
-        open=df["Open"], high=df["High"],
-        low=df["Low"], close=df["Close"],
-        name="Candlestick"
-    ))
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Backtest
-    results = backtest(df, strategy_func)
-    st.write(f"💵 Final Balance: ${results['final_balance']:.2f}")
-    st.write(f"📊 Total Profit: ${results['profit']:.2f}")
-    st.write(f"🔄 Trades Taken: {results['trades']}")
-    st.write(f"✅ Win Rate: {results['win_rate']:.2f}%")
-
-    fig_equity = go.Figure()
-    fig_equity.add_trace(go.Scatter(
-        x=df.index,
-        y=results["equity_curve"],
-        line=dict(color="blue"),
-        name="Equity Curve"
-    ))
-    st.plotly_chart(fig_equity, use_container_width=True)
-
-# Portfolio Info
-account = api.get_account()
-st.sidebar.write("💰 Account Balance:", account.cash)
-
-# Trade Log
-st.subheader("📜 Trade Log")
-if st.session_state.trade_log:
-    st.dataframe(pd.DataFrame(st.session_state.trade_log))
-else:
-    st.info("No trades executed yet.")
-
-# ====== PORTFOLIO AGGREGATION ======
-st.subheader("📊 Portfolio Performance")
-
-portfolio_equity = []
-portfolio_balance = 0
-portfolio_trades = 0
-portfolio_wins = 0
-
-equity_curves = []
-
-for symbol in symbols:
-    if not symbol:
-        continue
-    df = get_data(symbol, period, interval)
-    results = backtest(df, strategy_func)
-    equity_curves.append(pd.Series(results["equity_curve"], index=df.index))
-    portfolio_balance += results["final_balance"]
-    portfolio_trades += results["trades"]
-    portfolio_wins += (results["win_rate"]/100) * results["trades"]
-
-# Align curves by date and sum to get portfolio equity
-if equity_curves:
-    combined_equity = pd.concat(equity_curves, axis=1).fillna(method="ffill").sum(axis=1)
-
-    st.write(f"💰 **Final Portfolio Balance:** ${combined_equity.iloc[-1]:.2f}")
-    st.write(f"📈 **Total Portfolio Profit:** ${combined_equity.iloc[-1] - len(symbols)*10000:.2f}")
-    st.write(f"🔄 **Total Trades:** {portfolio_trades}")
-    st.write(f"✅ **Portfolio Win Rate:** {(portfolio_wins/portfolio_trades*100 if portfolio_trades>0 else 0):.2f}%")
-
-    # Chart
-    fig_portfolio = go.Figure()
-    fig_portfolio.add_trace(go.Scatter(
-        x=combined_equity.index,
-        y=combined_equity,
-        line=dict(color="green"),
-        name="Portfolio Equity"
-    ))
-    st.plotly_chart(fig_portfolio, use_container_width=True)
-else:
-    st.info("No portfolio data available yet.")
-
-
-
+        st.plotly_chart(fig, use_container_width=True)
