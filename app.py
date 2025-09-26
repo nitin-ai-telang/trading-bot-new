@@ -82,39 +82,54 @@ def bollinger_strategy(df, window=20, num_std=2):
 
 # --- BACKTEST ENGINE ---
 def backtest(df, strategy_func, initial_balance=10000, trade_size=1):
-    if df.empty or len(df) < 50:
+    # Guard: skip if no data
+    if df.empty or "Close" not in df.columns or len(df) < 50:
         return {
             "final_balance": initial_balance,
             "profit": 0,
             "trades": 0,
             "win_rate": 0,
-            "equity_curve": [initial_balance]
+            "equity_curve": [initial_balance],
         }
 
+    balance = initial_balance
+    position = 0
+    equity_curve = []
+    trades = 0
+    wins = 0
 
     for i in range(len(df)):
-        sub_df = df.iloc[: i + 1]
-        signal = strategy_func(sub_df)
         price = df["Close"].iloc[i]
 
-        if signal == "BUY" and position == 0:
-            position = trade_size
-            entry_price = price
+        # Skip bad rows
+        if pd.isna(price):
+            equity_curve.append(balance + position * 0)  # flat
+            continue
+
+        signal = strategy_func(df, i)
+
+        if signal == "buy":
+            position += trade_size
+            balance -= trade_size * price
             trades += 1
-        elif signal == "SELL" and position > 0:
-            pnl = (price - entry_price) * position
-            balance += pnl
-            if pnl > 0:
+        elif signal == "sell" and position > 0:
+            position -= trade_size
+            balance += trade_size * price
+            trades += 1
+            if balance > initial_balance:  # very naive win check
                 wins += 1
-            position = 0
 
         equity_curve.append(balance + position * price)
 
+    final_balance = balance + position * df["Close"].iloc[-1]
+    profit = final_balance - initial_balance
+    win_rate = (wins / trades * 100) if trades > 0 else 0
+
     return {
-        "final_balance": balance,
-        "profit": balance - initial_balance,
+        "final_balance": final_balance,
+        "profit": profit,
         "trades": trades,
-        "win_rate": (wins / trades * 100) if trades > 0 else 0,
+        "win_rate": win_rate,
         "equity_curve": equity_curve,
     }
 
